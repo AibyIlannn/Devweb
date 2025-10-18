@@ -1,0 +1,47 @@
+{
+  "name": "dev-create-web",
+  "version": "1.2.1",
+  "description": "🚀 CLI tool to generate Node.js project structure with Express, EJS, and MySQL support",
+  "main": "index.js",
+  "bin": {
+    "create-web": "./index.js"
+  },
+  "scripts": {
+    "test": "node index.js",
+    "link": "npm link",
+    "unlink": "npm unlink -g create-web"
+  },
+  "keywords": [
+    "cli",
+    "generator",
+    "nodejs",
+    "express",
+    "ejs",
+    "mysql",
+    "boilerplate",
+    "scaffold",
+    "template",
+    "create-app",
+    "project-generator"
+  ],
+  "author": "Ilan al iman aihomestudio680@gmail.com",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Aibyilannn/create-web.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Aibyilannn/create-web/issues"
+  },
+  "homepage": "https://github.com/Aibyilannn/create-web#readme",
+  "engines": {
+    "node": ">=14.0.0",
+    "npm": ">=6.0.0"
+  },
+  "preferGlobal": true,
+  "files": [
+    "index.js",
+    "README.md",
+    "LICENSE"
+  ]
+}
