@@ -1341,7 +1341,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const projectDir = path.join(process.cwd(), projectName);
 
     this.logger.info('Installing dependencies...');
-    await this.packageManager.installDependencies(projectDir, 'express cors dotenv helmet morgan');
+    await this.packageManager.installDependencies(projectDir, 'express cors dotenv helmet morgan --no-bin-link');
     
     if (this.config.useEjs === 'EJS (Dynamic)') {
       await this.packageManager.installDependencies(projectDir, 'ejs');
