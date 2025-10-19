@@ -401,7 +401,7 @@ ${COLORS.cyan}${COLORS.bright}
     ░ ▒  ▒  ░ ░  ░  ░ ░░  
     ░ ░  ░    ░       ░░  
       ░       ░  ░     ░  
- 🚀 DEV WEB v${CONFIG.VERSION}
+     🚀 DEV WEB v${CONFIG.VERSION}
 ${COLORS.reset}
 `;
     console.log(banner);
@@ -1508,14 +1508,14 @@ class Application {
 
   showSuccessMessage(config) {
 console.log(`
-  ____   ______        __      __
- |  _ \\ |  _ \\ \\      / /\\    / / 
- | | | || | | \\ \\ /\\ / /  \\  / /  
- | | | || | | |\\ V  V / /\\ \\/ /   
- | |_| || |_| | \\_/\\_/ /  \\  /    
- |____/ |____/        /_/  \\/     
-
-        SUCCESS
+┈┈┈╲┈┈┈┈╱
+┈┈┈╱▔▔▔▔╲
+┈┈┃┈▇┈┈▇┈┃          Author: Developer Aibyilann
+╭╮┣━━━━━━┫╭╮        Github: https://github.com/Aibyilann
+┃┃┃┈┈┈┈┈┈┃┃┃        Version: 2,0.0
+╰╯┃┈┈┈┈┈┈┃╰╯        Project: Dev CLI & NPM development
+┈┈╰┓┏━━┓┏╯          Status: Active
+┈┈┈╰╯┈┈╰╯ 
 `);
 
     const projectPath = path.join(process.cwd(), config.projectName);
