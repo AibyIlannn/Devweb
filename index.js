@@ -682,8 +682,8 @@ process.on('SIGTERM', () => {
       "scripts": {
         "start": "node src/server.js",
         "dev": "nodemon src/server.js",
-        "test": "echo \\"No tests specified\\"",
-        "lint": features.linter ? "eslint src/**/*.js" : "echo \\"No linter configured\\""
+        "test": "echo \\'No tests specified\\'",
+        "lint": features.linter ? "eslint src/**/*.js" : "echo \\'No linter configured\\'"
       },
       "keywords": ["nodejs", "express", "web"],
       "author": "",
