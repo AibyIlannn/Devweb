@@ -15,7 +15,7 @@ const CONFIG = {
   VERSION: '2.0.0',
   MIN_NODE_VERSION: '14.0.0',
   MIN_NPM_VERSION: '6.0.0',
-  TIMEOUT: 300000, // 5 minutes
+  TIMEOUT: 300000,
   MAX_PROJECT_NAME_LENGTH: 50,
   BACKUP_DIR: '.web-generator-backup',
   LOG_FILE: 'web-generator.log'
@@ -26,11 +26,6 @@ const COLORS = {
   bright: '\x1b[1m',
   dim: '\x1b[2m',
   underscore: '\x1b[4m',
-  blink: '\x1b[5m',
-  reverse: '\x1b[7m',
-  hidden: '\x1b[8m',
-  
-  black: '\x1b[30m',
   red: '\x1b[31m',
   green: '\x1b[32m',
   yellow: '\x1b[33m',
@@ -38,15 +33,7 @@ const COLORS = {
   magenta: '\x1b[35m',
   cyan: '\x1b[36m',
   white: '\x1b[37m',
-  
-  bgBlack: '\x1b[40m',
-  bgRed: '\x1b[41m',
-  bgGreen: '\x1b[42m',
-  bgYellow: '\x1b[43m',
-  bgBlue: '\x1b[44m',
-  bgMagenta: '\x1b[45m',
-  bgCyan: '\x1b[46m',
-  bgWhite: '\x1b[47m'
+  bgBlue: '\x1b[44m'
 };
 
 // ============================================================================
@@ -86,7 +73,6 @@ class Logger {
       this.logStream.write(logLine);
     }
 
-    // Console output with colors
     const colorMap = {
       ERROR: COLORS.red,
       WARN: COLORS.yellow,
@@ -169,33 +155,11 @@ class Validator {
   }
 
   static sanitizePath(userPath) {
-    // Prevent directory traversal
     const normalized = path.normalize(userPath);
     if (normalized.includes('..')) {
       throw new Error('Path traversal detected');
     }
     return normalized;
-  }
-
-  static validateDatabaseConfig(config) {
-    const errors = [];
-
-    if (config.type === 'mysql') {
-      if (!config.host || config.host.trim() === '') {
-        errors.push('Database host is required');
-      }
-      if (!config.database || config.database.trim() === '') {
-        errors.push('Database name is required');
-      }
-      if (!config.user || config.user.trim() === '') {
-        errors.push('Database user is required');
-      }
-    }
-
-    return {
-      valid: errors.length === 0,
-      errors
-    };
   }
 }
 
@@ -252,69 +216,11 @@ class FileSystemManager {
     }
   }
 
-  async copyFile(source, destination) {
-    try {
-      const sanitizedSrc = Validator.sanitizePath(source);
-      const sanitizedDest = Validator.sanitizePath(destination);
-      
-      fs.copyFileSync(sanitizedSrc, sanitizedDest);
-      this.createdFiles.push(sanitizedDest);
-      this.logger.debug(`Copied file: ${sanitizedSrc} -> ${sanitizedDest}`);
-      
-      return true;
-    } catch (error) {
-      this.logger.error(`Failed to copy file: ${source} -> ${destination}`, error);
-      throw new Error(`File copy failed: ${error.message}`);
-    }
-  }
-
-  async checkWritePermission(dirPath) {
-    try {
-      const testFile = path.join(dirPath, `.write-test-${Date.now()}`);
-      fs.writeFileSync(testFile, 'test');
-      fs.unlinkSync(testFile);
-      return true;
-    } catch (error) {
-      this.logger.error(`No write permission in: ${dirPath}`, error);
-      return false;
-    }
-  }
-
-  async getDiskSpace(dirPath) {
-    try {
-      // Platform-specific disk space check
-      if (os.platform() === 'win32') {
-        const drive = path.parse(dirPath).root;
-        const output = execSync(`wmic logicaldisk where "DeviceID='${drive.replace('\\', '')}'" get FreeSpace,Size`, {
-          encoding: 'utf8'
-        });
-        const lines = output.trim().split('\n');
-        const values = lines[1].trim().split(/\s+/);
-        return {
-          free: parseInt(values[0], 10),
-          total: parseInt(values[1], 10)
-        };
-      } else {
-        const output = execSync(`df -k "${dirPath}"`, { encoding: 'utf8' });
-        const lines = output.trim().split('\n');
-        const values = lines[1].trim().split(/\s+/);
-        return {
-          free: parseInt(values[3], 10) * 1024,
-          total: parseInt(values[1], 10) * 1024
-        };
-      }
-    } catch (error) {
-      this.logger.warn('Failed to get disk space', error);
-      return { free: Infinity, total: Infinity };
-    }
-  }
-
   async rollback() {
     this.logger.warn('Rolling back file system changes...');
     
     let rollbackErrors = 0;
 
-    // Delete created files
     for (const file of this.createdFiles.reverse()) {
       try {
         if (fs.existsSync(file)) {
@@ -327,7 +233,6 @@ class FileSystemManager {
       }
     }
 
-    // Delete created directories
     for (const dir of this.createdDirs.reverse()) {
       try {
         if (fs.existsSync(dir) && fs.readdirSync(dir).length === 0) {
@@ -367,35 +272,19 @@ class PackageManager {
     this.installedPackages = [];
   }
 
-  async detectPackageManager() {
-    const managers = ['npm', 'yarn', 'pnpm'];
-    
-    for (const manager of managers) {
-      try {
-        execSync(`${manager} --version`, { stdio: 'pipe' });
-        this.logger.info(`Detected package manager: ${manager}`);
-        return manager;
-      } catch (error) {
-        continue;
-      }
-    }
-    
-    throw new Error('No package manager found. Please install npm, yarn, or pnpm');
-  }
-
   async installDependencies(projectDir, dependencies, dev = false) {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         reject(new Error(`Installation timeout after ${CONFIG.TIMEOUT / 1000} seconds`));
       }, CONFIG.TIMEOUT);
 
-      const packages = Array.isArray(dependencies) ? dependencies.join(' ') : dependencies;
+      const packages = Array.isArray(dependencies) ? dependencies : [dependencies];
       const devFlag = dev ? '--save-dev' : '';
-      const command = `npm install ${devFlag} ${packages}`;
 
-      this.logger.info(`Installing: ${packages}`);
+      this.logger.info(`Installing: ${packages.join(', ')}`);
 
-      const child = spawn('npm', ['install', devFlag, ...packages.split(' ')].filter(Boolean), {
+      const args = ['install', devFlag, ...packages].filter(Boolean);
+      const child = spawn('npm', args, {
         cwd: projectDir,
         stdio: ['inherit', 'pipe', 'pipe']
       });
@@ -414,11 +303,11 @@ class PackageManager {
 
       child.on('close', (code) => {
         clearTimeout(timeout);
-        console.log(''); // New line after dots
+        console.log('');
 
         if (code === 0) {
-          this.installedPackages.push(...packages.split(' '));
-          this.logger.success(`Successfully installed: ${packages}`);
+          this.installedPackages.push(...packages);
+          this.logger.success(`Successfully installed: ${packages.join(', ')}`);
           resolve();
         } else {
           this.logger.error(`Installation failed with code ${code}`, { stdout, stderr });
@@ -432,37 +321,6 @@ class PackageManager {
         reject(error);
       });
     });
-  }
-
-  async verifyInstallation(projectDir, packages) {
-    const missing = [];
-    const packageJsonPath = path.join(projectDir, 'package.json');
-
-    try {
-      const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-      const allDeps = {
-        ...packageJson.dependencies,
-        ...packageJson.devDependencies
-      };
-
-      for (const pkg of packages) {
-        const pkgName = pkg.split('@')[0];
-        if (!allDeps[pkgName]) {
-          missing.push(pkgName);
-        }
-      }
-
-      if (missing.length > 0) {
-        this.logger.warn('Missing packages detected', { missing });
-        return false;
-      }
-
-      this.logger.success('All packages verified successfully');
-      return true;
-    } catch (error) {
-      this.logger.error('Failed to verify installation', error);
-      return false;
-    }
   }
 }
 
@@ -478,115 +336,37 @@ class SystemChecker {
   async checkAll() {
     this.logger.info('Checking system requirements...');
     
-    const checks = [
-      this.checkNodeVersion(),
-      this.checkNpmVersion(),
-      this.checkDiskSpace(),
-      this.checkMemory(),
-      this.checkNetwork()
-    ];
-
-    const results = await Promise.allSettled(checks);
-    const failures = results.filter(r => r.status === 'rejected');
-
-    if (failures.length > 0) {
-      failures.forEach(f => this.logger.error('System check failed', f.reason));
+    try {
+      await this.checkNodeVersion();
+      await this.checkNpmVersion();
+      this.logger.success('All system checks passed');
+      return true;
+    } catch (error) {
+      this.logger.error('System check failed', error);
       return false;
     }
-
-    this.logger.success('All system checks passed');
-    return true;
   }
 
   async checkNodeVersion() {
-    try {
-      const version = process.version.substring(1);
-      
-      if (!Validator.validateVersion(version, CONFIG.MIN_NODE_VERSION)) {
-        throw new Error(`Node.js version ${version} is below minimum ${CONFIG.MIN_NODE_VERSION}`);
-      }
-
-      this.logger.info(`✓ Node.js version: ${version}`);
-      return true;
-    } catch (error) {
-      throw new Error(`Node.js check failed: ${error.message}`);
+    const version = process.version.substring(1);
+    
+    if (!Validator.validateVersion(version, CONFIG.MIN_NODE_VERSION)) {
+      throw new Error(`Node.js version ${version} is below minimum ${CONFIG.MIN_NODE_VERSION}`);
     }
+
+    this.logger.info(`✓ Node.js version: ${version}`);
+    return true;
   }
 
   async checkNpmVersion() {
-    try {
-      const version = execSync('npm --version', { encoding: 'utf8' }).trim();
-      
-      if (!Validator.validateVersion(version, CONFIG.MIN_NPM_VERSION)) {
-        throw new Error(`npm version ${version} is below minimum ${CONFIG.MIN_NPM_VERSION}`);
-      }
-
-      this.logger.info(`✓ npm version: ${version}`);
-      return true;
-    } catch (error) {
-      throw new Error(`npm check failed: ${error.message}`);
+    const version = execSync('npm --version', { encoding: 'utf8' }).trim();
+    
+    if (!Validator.validateVersion(version, CONFIG.MIN_NPM_VERSION)) {
+      throw new Error(`npm version ${version} is below minimum ${CONFIG.MIN_NPM_VERSION}`);
     }
-  }
 
-  async checkDiskSpace() {
-    try {
-      const fsManager = new FileSystemManager(this.logger);
-      const space = await fsManager.getDiskSpace(process.cwd());
-      const requiredSpace = 100 * 1024 * 1024; // 100 MB
-
-      if (space.free < requiredSpace) {
-        throw new Error(`Insufficient disk space. Required: 100MB, Available: ${Math.round(space.free / 1024 / 1024)}MB`);
-      }
-
-      this.logger.info(`✓ Disk space: ${Math.round(space.free / 1024 / 1024)}MB available`);
-      return true;
-    } catch (error) {
-      this.logger.warn('Could not verify disk space', error);
-      return true; // Non-critical
-    }
-  }
-
-  async checkMemory() {
-    try {
-      const totalMem = os.totalmem();
-      const freeMem = os.freemem();
-      const requiredMem = 512 * 1024 * 1024; // 512 MB
-
-      if (freeMem < requiredMem) {
-        this.logger.warn(`Low memory: ${Math.round(freeMem / 1024 / 1024)}MB available`);
-      }
-
-      this.logger.info(`✓ Memory: ${Math.round(freeMem / 1024 / 1024)}MB / ${Math.round(totalMem / 1024 / 1024)}MB`);
-      return true;
-    } catch (error) {
-      this.logger.warn('Could not check memory', error);
-      return true; // Non-critical
-    }
-  }
-
-  async checkNetwork() {
-    try {
-      const dns = require('dns').promises;
-      await dns.resolve('registry.npmjs.org');
-      this.logger.info('✓ Network connectivity: OK');
-      return true;
-    } catch (error) {
-      this.logger.warn('Network connectivity check failed - may affect package installation', error);
-      return true; // Non-critical, will fail later if needed
-    }
-  }
-
-  getSystemInfo() {
-    return {
-      platform: os.platform(),
-      arch: os.arch(),
-      cpus: os.cpus().length,
-      totalMemory: os.totalmem(),
-      freeMemory: os.freemem(),
-      nodeVersion: process.version,
-      homeDir: os.homedir(),
-      tmpDir: os.tmpdir()
-    };
+    this.logger.info(`✓ npm version: ${version}`);
+    return true;
   }
 }
 
@@ -609,62 +389,8 @@ class InteractiveCLI {
     });
   }
 
-  async select(question, options, config = {}) {
-    return new Promise((resolve) => {
-      let selected = config.default || 0;
-      const showHelp = config.help || false;
-      
-      const render = () => {
-        console.clear();
-        this.showBanner();
-        console.log(`${COLORS.bright}${question}${COLORS.reset}\n`);
-        
-        options.forEach((option, index) => {
-          const prefix = index === selected ? 
-            `${COLORS.green}${COLORS.bright}➤ ` : '  ';
-          const suffix = COLORS.reset;
-          console.log(`${prefix}${option}${suffix}`);
-        });
-        
-        if (showHelp) {
-          console.log(`\n${COLORS.dim}${config.helpText || 'Use arrow keys to navigate'}${COLORS.reset}`);
-        }
-        
-        console.log(`\n${COLORS.yellow}↑↓ Navigate | Enter Select | Ctrl+C Exit${COLORS.reset}`);
-      };
-      
-      render();
-      
-      const stdin = process.stdin;
-      stdin.setRawMode(true);
-      stdin.resume();
-      stdin.setEncoding('utf8');
-      
-      const onData = (key) => {
-        if (key === '\u001B\u005B\u0041') { // Up
-          selected = selected > 0 ? selected - 1 : options.length - 1;
-          render();
-        } else if (key === '\u001B\u005B\u0042') { // Down
-          selected = selected < options.length - 1 ? selected + 1 : 0;
-          render();
-        } else if (key === '\r' || key === '\n') { // Enter
-          stdin.setRawMode(false);
-          stdin.pause();
-          stdin.removeListener('data', onData);
-          console.log('');
-          resolve(options[selected]);
-        } else if (key === '\u0003') { // Ctrl+C
-          this.cleanup();
-          process.exit(0);
-        }
-      };
-      
-      stdin.on('data', onData);
-    });
-  }
-
   showBanner() {
-const banner = `
+    const banner = `
 ${COLORS.cyan}${COLORS.bright}
    ▓█████▄ ▓█████ ██▒   █▓
    ▒██▀ ██▌▓█   ▀▓██░   █▒
@@ -681,43 +407,13 @@ ${COLORS.reset}
     console.log(banner);
   }
 
-  showProgress(message, duration = 2000) {
-    return new Promise((resolve) => {
-      const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-      let i = 0;
-      
-      const interval = setInterval(() => {
-        process.stdout.write(`\r${COLORS.cyan}${frames[i]} ${message}${COLORS.reset}`);
-        i = (i + 1) % frames.length;
-      }, 80);
-      
-      setTimeout(() => {
-        clearInterval(interval);
-        process.stdout.write(`\r${COLORS.green}✓ ${message}${COLORS.reset}\n`);
-        resolve();
-      }, duration);
-    });
-  }
-
-  showProgressBar(label, current, total) {
-    const percentage = Math.round((current / total) * 100);
-    const filled = Math.round((current / total) * 40);
-    const bar = '█'.repeat(filled) + '░'.repeat(40 - filled);
-    
-    process.stdout.write(`\r${COLORS.cyan}${label}: [${bar}] ${percentage}%${COLORS.reset}`);
-    
-    if (current >= total) {
-      console.log('');
-    }
-  }
-
   cleanup() {
     this.rl.close();
   }
 }
 
 // ============================================================================
-// PROJECT GENERATOR
+// PROJECT GENERATOR - FIXED VERSION
 // ============================================================================
 
 class ProjectGenerator {
@@ -735,16 +431,9 @@ class ProjectGenerator {
     try {
       this.logger.info('Starting project generation...');
       
-      // Create project structure
       await this.createStructure();
-      
-      // Generate files
       await this.generateFiles();
-      
-      // Install dependencies
       await this.installDependencies();
-      
-      // Post-generation tasks
       await this.postGeneration();
       
       const duration = ((Date.now() - startTime) / 1000).toFixed(2);
@@ -772,27 +461,22 @@ class ProjectGenerator {
       'public/js',
       'public/images',
       'public/uploads',
-      'tests'
+      'tests',
+      'logs'
     ];
 
-    if (useEjs) {
+    if (useEjs === 'EJS (Dynamic)') {
       dirs.push('views/components', 'views/pages', 'views/layouts');
-    } else {
-      dirs.push('src/components', 'src/pages');
     }
 
-    let completed = 0;
     for (const dir of dirs) {
       await this.fsManager.createDirectory(path.join(rootDir, dir));
-      completed++;
-      // Progress indication could be added here
     }
 
     this.logger.success(`Created ${dirs.length} directories`);
   }
 
   async generateFiles() {
-    // Implementation would include all template generation
     this.logger.info('Generating project files...');
     
     const files = this.getFileTemplates();
@@ -807,370 +491,150 @@ class ProjectGenerator {
   }
 
   getFileTemplates() {
-    // Return all file templates based on configuration
-    // This would be similar to your existing templates but more organized
-    return {};
-  }
-
-  async installDependencies() {
-    const { projectName, useEjs, useDB } = this.config;
-    const projectDir = path.join(process.cwd(), projectName);
-
-    const dependencies = ['express', 'cors', 'dotenv', 'helmet', 'morgan'];
+    const { projectName, useEjs, useDB, port, features } = this.config;
+    const rootDir = path.join(process.cwd(), projectName);
     
-    if (useEjs) dependencies.push('ejs');
-    if (useDB === 'mysql') dependencies.push('mysql2');
+    const files = {};
 
-    await this.packageManager.installDependencies(projectDir, dependencies);
+    // ✅ MAIN APP FILE
+    files[path.join(rootDir, 'src/app.js')] = this.generateAppJs();
     
-    const devDependencies = ['nodemon', 'eslint', 'prettier'];
-    await this.packageManager.installDependencies(projectDir, devDependencies, true);
-  }
-
-  async postGeneration() {
-    this.logger.info('Running post-generation tasks...');
+    // ✅ SERVER FILE
+    files[path.join(rootDir, 'src/server.js')] = this.generateServerJs();
     
-    // Initialize git repository
-    try {
-      const projectDir = path.join(process.cwd(), this.config.projectName);
-      execSync('git init', { cwd: projectDir, stdio: 'pipe' });
-      this.logger.success('Initialized git repository');
-    } catch (error) {
-      this.logger.warn('Could not initialize git repository', error);
-    }
-  }
-}
-
-// ============================================================================
-// MAIN APPLICATION
-// ============================================================================
-
-class Application {
-  constructor() {
-    this.logger = new Logger(CONFIG.LOG_FILE);
-    this.cli = new InteractiveCLI(this.logger);
-    this.fsManager = new FileSystemManager(this.logger);
-    this.packageManager = new PackageManager(this.logger);
-    this.systemChecker = new SystemChecker(this.logger);
-    this.generator = new ProjectGenerator(this.logger, this.fsManager, this.packageManager);
-  }
-
-  async run() {
-    try {
-      // Show banner
-      console.clear();
-      this.cli.showBanner();
-      
-      // Check system requirements
-      const systemOk = await this.systemChecker.checkAll();
-      if (!systemOk) {
-        throw new Error('System requirements not met');
-      }
-
-      await this.cli.showProgress('System checks passed', 1000);
-
-      // Get project configuration
-      const config = await this.getProjectConfiguration();
-
-      // Confirm configuration
-      const confirmed = await this.confirmConfiguration(config);
-      if (!confirmed) {
-        this.logger.info('Project generation cancelled by user');
-        process.exit(0);
-      }
-
-      // Generate project
-      await this.generator.generate(config);
-
-      // Show success message
-      this.showSuccessMessage(config);
-
-    } catch (error) {
-      this.logger.error('Application error', error);
-      process.exit(1);
-    } finally {
-      this.cleanup();
-    }
-  }
-
-  async getProjectConfiguration() {
-    const config = {};
-
-    // Project name
-    while (true) {
-      console.log('');
-      const name = await this.cli.question(`${COLORS.cyan}📝 Project name: ${COLORS.reset}`);
-      const validation = Validator.validateProjectName(name);
-      
-      if (validation.valid) {
-        // Check if directory exists
-        const projectPath = path.join(process.cwd(), name);
-        if (fs.existsSync(projectPath)) {
-          this.logger.error(`Directory "${name}" already exists`);
-          const overwrite = await this.cli.question(`${COLORS.yellow}Overwrite? (yes/no): ${COLORS.reset}`);
-          if (overwrite.toLowerCase() === 'yes') {
-            try {
-              fs.rmSync(projectPath, { recursive: true, force: true });
-              this.logger.success('Existing directory removed');
-            } catch (error) {
-              this.logger.error('Failed to remove existing directory', error);
-              continue;
-            }
-          } else {
-            continue;
-          }
-        }
-        config.projectName = name;
-        break;
-      } else {
-        validation.errors.forEach(err => this.logger.error(err));
-      }
-    }
-
-    // Template engine
-    config.useEjs = await this.cli.select(
-      '🎨 Choose template engine:',
-      ['EJS (Dynamic)', 'Plain HTML (Static)', 'None (API Only)'],
-      { help: true, helpText: 'EJS allows dynamic content rendering' }
-    );
-
-    // Database selection
-    config.useDB = await this.cli.select(
-      '🗄️  Choose database:',
-      ['MySQL', 'PostgreSQL', 'MongoDB', 'None'],
-      { help: true, helpText: 'Select database system for your project' }
-    );
-
-    // Additional features
-    config.features = await this.selectFeatures();
-
-    // Port configuration
-    while (true) {
-      const port = await this.cli.question(`${COLORS.cyan}🔌 Server port (default: 3000): ${COLORS.reset}`) || '3000';
-      if (Validator.validatePort(port)) {
-        config.port = port;
-        break;
-      } else {
-        this.logger.error('Invalid port number');
-      }
-    }
-
-    // Security options
-    config.security = await this.cli.select(
-      '🔒 Security level:',
-      ['Basic (helmet, cors)', 'Standard (+ rate limiting)', 'Advanced (+ CSRF, session)'],
-      { default: 1 }
-    );
-
-    // Git initialization
-    const gitAnswer = await this.cli.question(`${COLORS.cyan}📦 Initialize git repository? (Y/n): ${COLORS.reset}`);
-    config.initGit = gitAnswer.toLowerCase() !== 'n';
-
-    return config;
-  }
-
-  async selectFeatures() {
-    console.log(`\n${COLORS.bright}Select additional features:${COLORS.reset}`);
-    const features = {
-      authentication: false,
-      fileUpload: false,
-      swagger: false,
-      testing: false,
-      docker: false,
-      linter: false
-    };
-
-    const authAnswer = await this.cli.question(`${COLORS.cyan}  ✓ Authentication (JWT)? (Y/n): ${COLORS.reset}`);
-    features.authentication = authAnswer.toLowerCase() !== 'n';
-
-    const uploadAnswer = await this.cli.question(`${COLORS.cyan}  ✓ File upload support? (Y/n): ${COLORS.reset}`);
-    features.fileUpload = uploadAnswer.toLowerCase() !== 'n';
-
-    const swaggerAnswer = await this.cli.question(`${COLORS.cyan}  ✓ API documentation (Swagger)? (y/N): ${COLORS.reset}`);
-    features.swagger = swaggerAnswer.toLowerCase() === 'y';
-
-    const testAnswer = await this.cli.question(`${COLORS.cyan}  ✓ Testing setup (Jest)? (y/N): ${COLORS.reset}`);
-    features.testing = testAnswer.toLowerCase() === 'y';
-
-    const dockerAnswer = await this.cli.question(`${COLORS.cyan}  ✓ Docker support? (y/N): ${COLORS.reset}`);
-    features.docker = dockerAnswer.toLowerCase() === 'y';
-
-    const linterAnswer = await this.cli.question(`${COLORS.cyan}  ✓ ESLint + Prettier? (Y/n): ${COLORS.reset}`);
-    features.linter = linterAnswer.toLowerCase() !== 'n';
-
-    return features;
-  }
-
-  async confirmConfiguration(config) {
-    console.log(`\n${COLORS.bright}${COLORS.bgBlue} PROJECT CONFIGURATION ${COLORS.reset}\n`);
-    console.log(`${COLORS.cyan}  Project Name:${COLORS.reset}     ${config.projectName}`);
-    console.log(`${COLORS.cyan}  Template:${COLORS.reset}         ${config.useEjs}`);
-    console.log(`${COLORS.cyan}  Database:${COLORS.reset}         ${config.useDB}`);
-    console.log(`${COLORS.cyan}  Port:${COLORS.reset}             ${config.port}`);
-    console.log(`${COLORS.cyan}  Security:${COLORS.reset}         ${config.security}`);
-    console.log(`${COLORS.cyan}  Git Init:${COLORS.reset}         ${config.initGit ? 'Yes' : 'No'}`);
-    console.log(`\n${COLORS.cyan}  Features:${COLORS.reset}`);
-    Object.entries(config.features).forEach(([key, value]) => {
-      console.log(`    ${value ? '✓' : '✗'} ${key}`);
-    });
+    // ✅ PACKAGE.JSON
+    files[path.join(rootDir, 'package.json')] = this.generatePackageJson();
     
-    const estimate = this.estimateGenerationTime(config);
-    console.log(`\n${COLORS.dim}  Estimated time: ~${estimate}s${COLORS.reset}`);
-    console.log(`${COLORS.dim}  Disk space needed: ~50MB${COLORS.reset}\n`);
-
-    const confirm = await this.cli.question(`${COLORS.yellow}Proceed with generation? (Y/n): ${COLORS.reset}`);
-    return confirm.toLowerCase() !== 'n';
-  }
-
-  estimateGenerationTime(config) {
-    let time = 10; // Base time
-    if (config.useDB !== 'None') time += 5;
-    if (config.features.authentication) time += 3;
-    if (config.features.swagger) time += 2;
-    if (config.features.testing) time += 4;
-    if (config.features.docker) time += 2;
-    return time;
-  }
-
-  showSuccessMessage(config) {
-    console.log(`\n${COLORS.green}${COLORS.bright}╔${'═'.repeat(65)}╗${COLORS.reset}`);
-    console.log(`${COLORS.green}${COLORS.bright}║${' '.repeat(65)}║${COLORS.reset}`);
-    console.log(`${COLORS.green}${COLORS.bright}║${' '.repeat(20)}🎉 SUCCESS! 🎉${' '.repeat(23)}║${COLORS.reset}`);
-    console.log(`${COLORS.green}${COLORS.bright}║${' '.repeat(65)}║${COLORS.reset}`);
-    console.log(`${COLORS.green}${COLORS.bright}╚${'═'.repeat(65)}╝${COLORS.reset}\n`);
-
-    const projectPath = path.join(process.cwd(), config.projectName);
-    console.log(`${COLORS.cyan}📁 Project created at:${COLORS.reset} ${COLORS.bright}${projectPath}${COLORS.reset}\n`);
-
-    const structure = this.fsManager.getCreatedStructure();
-    console.log(`${COLORS.dim}  Created: ${structure.totalFiles} files, ${structure.totalDirectories} directories${COLORS.reset}\n`);
-
-    console.log(`${COLORS.yellow}${COLORS.bright}📋 Next Steps:${COLORS.reset}\n`);
-    console.log(`  ${COLORS.cyan}1.${COLORS.reset} cd ${config.projectName}`);
-    console.log(`  ${COLORS.cyan}2.${COLORS.reset} npm run dev ${COLORS.dim}(start development server)${COLORS.reset}`);
+    // ✅ ENV FILES
+    files[path.join(rootDir, '.env')] = this.generateEnv();
+    files[path.join(rootDir, '.env.example')] = this.generateEnv();
     
-    if (config.useDB !== 'None') {
-      console.log(`  ${COLORS.cyan}3.${COLORS.reset} Configure database in .env file`);
-      console.log(`  ${COLORS.cyan}4.${COLORS.reset} Create database: ${COLORS.dim}CREATE DATABASE ${config.projectName};${COLORS.reset}`);
+    // ✅ GITIGNORE
+    files[path.join(rootDir, '.gitignore')] = this.generateGitignore();
+    
+    // ✅ README
+    files[path.join(rootDir, 'README.md')] = this.generateReadme();
+    
+    // ✅ ROUTES
+    files[path.join(rootDir, 'src/routes/index.js')] = this.generateRoutes();
+    
+    // ✅ DATABASE CONFIG (if needed)
+    if (useDB !== 'None') {
+      files[path.join(rootDir, 'src/config/database.js')] = this.generateDatabaseConfig();
     }
-
-    console.log(`\n${COLORS.magenta}${COLORS.bright}📚 Documentation:${COLORS.reset}`);
-    console.log(`  • README.md - Project overview`);
-    console.log(`  • .env.example - Environment variables template`);
-    if (config.features.swagger) {
-      console.log(`  • http://localhost:${config.port}/api-docs - API documentation`);
+    
+    // ✅ MIDDLEWARE
+    if (features.authentication) {
+      files[path.join(rootDir, 'src/middleware/auth.js')] = this.generateAuthMiddleware();
     }
-
-    console.log(`\n${COLORS.green}${COLORS.bright}🚀 Your application will run on:${COLORS.reset}`);
-    console.log(`   ${COLORS.underscore}http://localhost:${config.port}${COLORS.reset}\n`);
-
-    console.log(`${COLORS.dim}Generated by create-web v${CONFIG.VERSION}${COLORS.reset}`);
-    console.log(`${COLORS.dim}Need help? Check the README.md file${COLORS.reset}\n`);
-
-    console.log(`${COLORS.bright}Happy coding! 💻✨${COLORS.reset}\n`);
+    
+    // ✅ EJS VIEWS (if needed)
+    if (useEjs === 'EJS (Dynamic)') {
+      files[path.join(rootDir, 'views/pages/index.ejs')] = this.generateIndexView();
+      files[path.join(rootDir, 'views/pages/404.ejs')] = this.generate404View();
+      files[path.join(rootDir, 'views/layouts/header.ejs')] = this.generateHeaderView();
+      files[path.join(rootDir, 'views/layouts/footer.ejs')] = this.generateFooterView();
+    } else {
+      files[path.join(rootDir, 'public/index.html')] = this.generateIndexHtml();
+    }
+    
+    // ✅ PUBLIC FILES
+    files[path.join(rootDir, 'public/css/style.css')] = this.generateCSS();
+    files[path.join(rootDir, 'public/js/main.js')] = this.generateJS();
+    
+    return files;
   }
 
-  cleanup() {
-    this.cli.cleanup();
-    this.logger.close();
-  }
-}
-
-// ============================================================================
-// ENHANCED TEMPLATES
-// ============================================================================
-
-const Templates = {
-  // Enhanced app.js with error handling and security
-  appJs: (config) => `const express = require('express');
+  generateAppJs() {
+    const { useEjs, useDB, features, port } = this.config;
+    
+    return `const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const dotenv = require('dotenv');
 const path = require('path');
 const routes = require('./routes');
-${config.useDB !== 'None' ? "const db = require('./config/database');" : ''}
-${config.features.authentication ? "const authMiddleware = require('./middleware/auth');" : ''}
+${useDB !== 'None' ? "const db = require('./config/database');" : ''}
+${features.authentication ? "const authMiddleware = require('./middleware/auth');" : ''}
 
-// Load environment variables
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || ${config.port};
+const PORT = process.env.PORT || ${port};
 
 // Security middleware
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "https:"],
-    },
-  },
-}));
-
-// CORS configuration
-const corsOptions = {
-  origin: process.env.ALLOWED_ORIGINS?.split(',') || '*',
-  credentials: true,
-  optionsSuccessStatus: 200
-};
-app.use(cors(corsOptions));
+app.use(helmet());
+app.use(cors());
 
 // Request parsing
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Logging
-app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
+app.use(morgan('dev'));
 
-${config.useEjs === 'EJS (Dynamic)' ? `// Template engine
+${useEjs === 'EJS (Dynamic)' ? `// Template engine
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, '../views'));` : ''}
 
 // Static files
-app.use(express.static(path.join(__dirname, '../public'), {
-  maxAge: process.env.NODE_ENV === 'production' ? '1d' : 0
-}));
+app.use(express.static(path.join(__dirname, '../public')));
 
-${config.useDB !== 'None' ? `// Database connection
+${useDB !== 'None' ? `// Database connection
 db.connect()
   .then(() => console.log('✅ Database connected'))
   .catch(err => console.error('❌ Database error:', err.message));` : ''}
 
-// API Routes
+// Routes
+${useEjs === 'EJS (Dynamic)' ? `app.get('/', (req, res) => {
+  res.render('pages/index', { 
+    title: '${this.config.projectName}',
+    message: 'Welcome to your new project!'
+  });
+});` : ''}
+
 app.use('/api', routes);
 
 // Health check
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'OK', 
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime()
+    timestamp: new Date().toISOString()
   });
 });
 
 // 404 Handler
 app.use((req, res) => {
-  res.status(404).${config.useEjs === 'EJS (Dynamic)' ? "render('pages/404')" : "json({ error: 'Not Found' })"};
+  res.status(404).${useEjs === 'EJS (Dynamic)' ? "render('pages/404')" : "json({ error: 'Not Found' })"};
 });
 
-// Global Error Handler
+// Error Handler
 app.use((err, req, res, next) => {
   console.error('Error:', err);
-  
-  const statusCode = err.statusCode || 500;
-  const message = process.env.NODE_ENV === 'production' 
-    ? 'Internal Server Error' 
-    : err.message;
-
-  res.status(statusCode).json({
+  res.status(err.statusCode || 500).json({
     error: {
-      message,
-      ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
+      message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message
     }
   });
+});
+
+module.exports = app;
+`;
+  }
+
+  generateServerJs() {
+    return `const app = require('./app');
+const PORT = process.env.PORT || ${this.config.port};
+
+const server = app.listen(PORT, () => {
+  console.log(\`
+╔════════════════════════════════════════════╗
+║  🚀 Server running on port \${PORT}
+║  📝 Environment: \${process.env.NODE_ENV || 'development'}
+║  🌐 URL: http://localhost:\${PORT}
+╚════════════════════════════════════════════╝
+  \`);
 });
 
 // Graceful shutdown
@@ -1178,54 +642,215 @@ process.on('SIGTERM', () => {
   console.log('SIGTERM received, closing server gracefully');
   server.close(() => {
     console.log('Server closed');
-    ${config.useDB !== 'None' ? 'db.disconnect();' : ''}
     process.exit(0);
   });
 });
+`;
+  }
 
-// Start server
-const server = app.listen(PORT, () => {
-  console.log(\`
-╔════════════════════════════════════════════╗
-║  🚀 Server running on port \${PORT}
-║  📝 Environment: \${process.env.NODE_ENV || 'development'}
-║  🌐 URL: http://localhost:\${PORT}
-${config.features.swagger ? "║  📚 API Docs: http://localhost:" + PORT + "/api-docs" : ''}
-╚════════════════════════════════════════════╝
-  \`);
+  generatePackageJson() {
+    const { projectName, useEjs, useDB, features } = this.config;
+    
+    const deps = {
+      "express": "^4.18.2",
+      "cors": "^2.8.5",
+      "dotenv": "^16.3.1",
+      "helmet": "^7.1.0",
+      "morgan": "^1.10.0"
+    };
+
+    if (useEjs === 'EJS (Dynamic)') deps["ejs"] = "^3.1.9";
+    if (useDB === 'MySQL') deps["mysql2"] = "^3.6.5";
+    if (useDB === 'PostgreSQL') deps["pg"] = "^8.11.3";
+    if (useDB === 'MongoDB') deps["mongodb"] = "^6.3.0";
+    if (features.authentication) deps["jsonwebtoken"] = "^9.0.2";
+
+    const devDeps = {
+      "nodemon": "^3.0.2"
+    };
+
+    if (features.linter) {
+      devDeps["eslint"] = "^8.55.0";
+      devDeps["prettier"] = "^3.1.1";
+    }
+
+    return JSON.stringify({
+      "name": projectName.toLowerCase().replace(/\s+/g, '-'),
+      "version": "1.0.0",
+      "description": `A Node.js web application - ${projectName}`,
+      "main": "src/server.js",
+      "scripts": {
+        "start": "node src/server.js",
+        "dev": "nodemon src/server.js",
+        "test": "echo \\"No tests specified\\"",
+        "lint": features.linter ? "eslint src/**/*.js" : "echo \\"No linter configured\\""
+      },
+      "keywords": ["nodejs", "express", "web"],
+      "author": "",
+      "license": "MIT",
+      "dependencies": deps,
+      "devDependencies": devDeps
+    }, null, 2);
+  }
+
+  generateEnv() {
+    const { projectName, port, useDB, features } = this.config;
+    
+    let env = `# Application Configuration
+NODE_ENV=development
+PORT=${port}
+APP_NAME=${projectName}
+
+# Security
+JWT_SECRET=${crypto.randomBytes(32).toString('hex')}
+ALLOWED_ORIGINS=http://localhost:${port}
+
+`;
+
+    if (useDB === 'MySQL') {
+      env += `# MySQL Database
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=
+DB_NAME=${projectName.toLowerCase().replace(/\s+/g, '_')}
+`;
+    }
+
+    if (useDB === 'PostgreSQL') {
+      env += `# PostgreSQL Database
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=postgres
+DB_PASSWORD=
+DB_NAME=${projectName.toLowerCase().replace(/\s+/g, '_')}
+`;
+    }
+
+    if (useDB === 'MongoDB') {
+      env += `# MongoDB
+MONGODB_URI=mongodb://localhost:27017
+DB_NAME=${projectName.toLowerCase().replace(/\s+/g, '_')}
+`;
+    }
+
+    return env;
+  }
+
+  generateGitignore() {
+    return `node_modules/
+.env
+.DS_Store
+*.log
+logs/
+dist/
+build/
+coverage/
+.vscode/
+.idea/
+public/uploads/*
+!public/uploads/.gitkeep
+`;
+  }
+
+  generateReadme() {
+    const { projectName, port } = this.config;
+    
+    return `# ${projectName}
+
+A modern Node.js web application built with Express.
+
+## 🚀 Quick Start
+
+\`\`\`bash
+# Install dependencies
+npm install
+
+# Start development server
+npm run dev
+
+# Start production server
+npm start
+\`\`\`
+
+## 📝 Configuration
+
+Copy \`.env.example\` to \`.env\` and configure your environment variables.
+
+## 🌐 URLs
+
+- Development: http://localhost:${port}
+- Health Check: http://localhost:${port}/health
+
+## 📦 Scripts
+
+- \`npm start\` - Start production server
+- \`npm run dev\` - Start development server with nodemon
+- \`npm test\` - Run tests
+
+## 🛠️ Tech Stack
+
+- Node.js
+- Express
+- ${this.config.useEjs === 'EJS (Dynamic)' ? 'EJS' : 'Plain HTML'}
+${this.config.useDB !== 'None' ? `- ${this.config.useDB}` : ''}
+
+## 📄 License
+
+MIT
+`;
+  }
+
+  generateRoutes() {
+    return `const express = require('express');
+const router = express.Router();
+
+// Example API endpoint
+router.get('/status', (req, res) => {
+  res.json({ 
+    message: 'API is running',
+    timestamp: new Date().toISOString()
+  });
 });
 
-module.exports = app;
-`,
+// Example data endpoint
+router.get('/data', (req, res) => {
+  res.json({ 
+    data: [
+      { id: 1, name: 'Item 1' },
+      { id: 2, name: 'Item 2' }
+    ]
+  });
+});
 
-  // Enhanced database configuration with connection pooling
-  databaseConfig: (dbType) => {
-    if (dbType === 'MySQL') {
+module.exports = router;
+`;
+  }
+
+  generateDatabaseConfig() {
+    const { useDB } = this.config;
+    
+    if (useDB === 'MySQL') {
       return `const mysql = require('mysql2/promise');
 const dotenv = require('dotenv');
 
 dotenv.config();
 
-// Connection pool configuration
 const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'mydb',
+  database: process.env.DB_NAME,
   port: process.env.DB_PORT || 3306,
   waitForConnections: true,
-  connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT) || 10,
-  queueLimit: 0,
-  enableKeepAlive: true,
-  keepAliveInitialDelay: 0,
-  connectTimeout: 10000
+  connectionLimit: 10,
+  queueLimit: 0
 });
 
-// Test connection
 const connect = async () => {
   try {
     const connection = await pool.getConnection();
-    console.log('✅ MySQL Database connected successfully');
+    console.log('✅ MySQL Database connected');
     connection.release();
     return true;
   } catch (error) {
@@ -1234,7 +859,6 @@ const connect = async () => {
   }
 };
 
-// Query helper with error handling
 const query = async (sql, params = []) => {
   try {
     const [results] = await pool.execute(sql, params);
@@ -1245,41 +869,9 @@ const query = async (sql, params = []) => {
   }
 };
 
-// Transaction helper
-const transaction = async (callback) => {
-  const connection = await pool.getConnection();
-  try {
-    await connection.beginTransaction();
-    const result = await callback(connection);
-    await connection.commit();
-    return result;
-  } catch (error) {
-    await connection.rollback();
-    throw error;
-  } finally {
-    connection.release();
-  }
-};
-
-// Graceful shutdown
-const disconnect = async () => {
-  try {
-    await pool.end();
-    console.log('Database connection closed');
-  } catch (error) {
-    console.error('Error closing database:', error);
-  }
-};
-
-module.exports = {
-  pool,
-  connect,
-  query,
-  transaction,
-  disconnect
-};
+module.exports = { pool, connect, query };
 `;
-    } else if (dbType === 'PostgreSQL') {
+    } else if (useDB === 'PostgreSQL') {
       return `const { Pool } = require('pg');
 const dotenv = require('dotenv');
 
@@ -1289,11 +881,9 @@ const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
   user: process.env.DB_USER || 'postgres',
   password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'mydb',
+  database: process.env.DB_NAME,
   port: process.env.DB_PORT || 5432,
-  max: parseInt(process.env.DB_CONNECTION_LIMIT) || 10,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 10000
+  max: 10
 });
 
 const connect = async () => {
@@ -1318,32 +908,23 @@ const query = async (text, params) => {
   }
 };
 
-const disconnect = async () => {
-  await pool.end();
-};
-
-module.exports = { pool, connect, query, disconnect };
+module.exports = { pool, connect, query };
 `;
-    } else if (dbType === 'MongoDB') {
+    } else if (useDB === 'MongoDB') {
       return `const { MongoClient } = require('mongodb');
 const dotenv = require('dotenv');
 
 dotenv.config();
 
 const uri = process.env.MONGODB_URI || 'mongodb://localhost:27017';
-const dbName = process.env.DB_NAME || 'mydb';
+const dbName = process.env.DB_NAME;
 
 let client;
 let db;
 
 const connect = async () => {
   try {
-    client = new MongoClient(uri, {
-      maxPoolSize: 10,
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 45000,
-    });
-    
+    client = new MongoClient(uri);
     await client.connect();
     db = client.db(dbName);
     console.log('✅ MongoDB connected');
@@ -1361,58 +942,36 @@ const getDb = () => {
   return db;
 };
 
-const disconnect = async () => {
-  if (client) {
-    await client.close();
-    console.log('MongoDB disconnected');
-  }
-};
-
-module.exports = { connect, getDb, disconnect };
+module.exports = { connect, getDb };
 `;
     }
     return '';
-  },
+  }
 
-  // Enhanced authentication middleware
-  authMiddleware: () => `const jwt = require('jsonwebtoken');
+  generateAuthMiddleware() {
+    return `const jwt = require('jsonwebtoken');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
-// Generate JWT token
 const generateToken = (payload) => {
-  return jwt.sign(payload, JWT_SECRET, { 
-    expiresIn: JWT_EXPIRES_IN,
-    issuer: 'your-app-name'
-  });
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 };
 
-// Verify JWT token
 const verifyToken = (token) => {
   try {
     return jwt.verify(token, JWT_SECRET);
   } catch (error) {
-    if (error.name === 'TokenExpiredError') {
-      throw new Error('Token expired');
-    }
-    if (error.name === 'JsonWebTokenError') {
-      throw new Error('Invalid token');
-    }
-    throw error;
+    throw new Error('Invalid token');
   }
 };
 
-// Authentication middleware
 const authenticate = (req, res, next) => {
   try {
     const authHeader = req.header('Authorization');
     
     if (!authHeader) {
-      return res.status(401).json({ 
-        error: 'Access denied', 
-        message: 'No token provided' 
-      });
+      return res.status(401).json({ error: 'No token provided' });
     }
 
     const token = authHeader.replace('Bearer ', '');
@@ -1421,202 +980,571 @@ const authenticate = (req, res, next) => {
     req.user = decoded;
     next();
   } catch (error) {
-    return res.status(401).json({ 
-      error: 'Authentication failed', 
-      message: error.message 
-    });
+    return res.status(401).json({ error: 'Authentication failed' });
   }
 };
 
-// Optional authentication (doesn't fail if no token)
-const optionalAuth = (req, res, next) => {
+module.exports = { generateToken, verifyToken, authenticate };
+`;
+  }
+
+  generateIndexView() {
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <%- include('../layouts/header') %>
+  <title><%= title %></title>
+</head>
+<body>
+  <div class="container">
+    <header class="hero">
+      <h1>🚀 <%= title %></h1>
+      <p class="subtitle"><%= message %></p>
+    </header>
+    
+    <main class="content">
+      <section class="card">
+        <h2>Welcome!</h2>
+        <p>Your project is now running successfully.</p>
+        <div class="buttons">
+          <a href="/api/status" class="btn btn-primary">Check API Status</a>
+          <a href="/health" class="btn btn-secondary">Health Check</a>
+        </div>
+      </section>
+
+      <section class="features">
+        <div class="feature-card">
+          <h3>⚡ Fast</h3>
+          <p>Built with Express.js for high performance</p>
+        </div>
+        <div class="feature-card">
+          <h3>🔒 Secure</h3>
+          <p>Includes security best practices</p>
+        </div>
+        <div class="feature-card">
+          <h3>📦 Modular</h3>
+          <p>Clean, organized code structure</p>
+        </div>
+      </section>
+    </main>
+
+    <%- include('../layouts/footer') %>
+  </div>
+  <script src="/js/main.js"></script>
+</body>
+</html>
+`;
+  }
+
+  generate404View() {
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <%- include('../layouts/header') %>
+  <title>404 - Page Not Found</title>
+</head>
+<body>
+  <div class="container">
+    <div class="error-page">
+      <h1>404</h1>
+      <p>Page Not Found</p>
+      <a href="/" class="btn btn-primary">Go Home</a>
+    </div>
+  </div>
+</body>
+</html>
+`;
+  }
+
+  generateHeaderView() {
+    return `<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="X-UA-Compatible" content="ie=edge">
+<link rel="stylesheet" href="/css/style.css">
+`;
+  }
+
+  generateFooterView() {
+    return `<footer class="footer">
+  <p>&copy; <%= new Date().getFullYear() %> ${this.config.projectName}. All rights reserved.</p>
+  <p>Built with ❤️ using Node.js & Express</p>
+</footer>
+`;
+  }
+
+  generateIndexHtml() {
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${this.config.projectName}</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="container">
+    <header class="hero">
+      <h1>🚀 ${this.config.projectName}</h1>
+      <p class="subtitle">Welcome to your new project!</p>
+    </header>
+    
+    <main class="content">
+      <section class="card">
+        <h2>Getting Started</h2>
+        <p>Your project is now running successfully.</p>
+        <div class="buttons">
+          <a href="/api/status" class="btn btn-primary">Check API Status</a>
+          <a href="/health" class="btn btn-secondary">Health Check</a>
+        </div>
+      </section>
+
+      <section class="features">
+        <div class="feature-card">
+          <h3>⚡ Fast</h3>
+          <p>Built with Express.js for high performance</p>
+        </div>
+        <div class="feature-card">
+          <h3>🔒 Secure</h3>
+          <p>Includes security best practices</p>
+        </div>
+        <div class="feature-card">
+          <h3>📦 Modular</h3>
+          <p>Clean, organized code structure</p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>&copy; ${new Date().getFullYear()} ${this.config.projectName}. All rights reserved.</p>
+      <p>Built with ❤️ using Node.js & Express</p>
+    </footer>
+  </div>
+  <script src="/js/main.js"></script>
+</body>
+</html>
+`;
+  }
+
+  generateCSS() {
+    return `* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --primary: #3498db;
+  --secondary: #2ecc71;
+  --dark: #2c3e50;
+  --light: #ecf0f1;
+  --danger: #e74c3c;
+  --shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  line-height: 1.6;
+  color: var(--dark);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  min-height: 100vh;
+  padding: 20px;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  background: white;
+  border-radius: 15px;
+  padding: 40px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+
+.hero {
+  text-align: center;
+  padding: 60px 20px;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+  color: white;
+  border-radius: 10px;
+  margin-bottom: 40px;
+}
+
+.hero h1 {
+  font-size: 3rem;
+  margin-bottom: 10px;
+  text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+}
+
+.subtitle {
+  font-size: 1.3rem;
+  opacity: 0.9;
+}
+
+.content {
+  padding: 20px 0;
+}
+
+.card {
+  background: white;
+  padding: 30px;
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  margin-bottom: 30px;
+  border-left: 4px solid var(--primary);
+}
+
+.card h2 {
+  color: var(--primary);
+  margin-bottom: 15px;
+}
+
+.buttons {
+  display: flex;
+  gap: 15px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+
+.btn {
+  display: inline-block;
+  padding: 12px 30px;
+  border-radius: 5px;
+  text-decoration: none;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  border: none;
+  cursor: pointer;
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: white;
+}
+
+.btn-primary:hover {
+  background: #2980b9;
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(52, 152, 219, 0.4);
+}
+
+.btn-secondary {
+  background: var(--secondary);
+  color: white;
+}
+
+.btn-secondary:hover {
+  background: #27ae60;
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(46, 204, 113, 0.4);
+}
+
+.features {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 20px;
+  margin-top: 30px;
+}
+
+.feature-card {
+  background: var(--light);
+  padding: 25px;
+  border-radius: 10px;
+  text-align: center;
+  transition: transform 0.3s ease;
+}
+
+.feature-card:hover {
+  transform: translateY(-5px);
+  box-shadow: var(--shadow);
+}
+
+.feature-card h3 {
+  color: var(--primary);
+  margin-bottom: 10px;
+  font-size: 1.5rem;
+}
+
+.footer {
+  text-align: center;
+  padding: 30px 0;
+  margin-top: 40px;
+  border-top: 2px solid var(--light);
+  color: #7f8c8d;
+}
+
+.error-page {
+  text-align: center;
+  padding: 100px 20px;
+}
+
+.error-page h1 {
+  font-size: 6rem;
+  color: var(--danger);
+  margin-bottom: 20px;
+}
+
+@media (max-width: 768px) {
+  .hero h1 {
+    font-size: 2rem;
+  }
+  
+  .subtitle {
+    font-size: 1rem;
+  }
+  
+  .buttons {
+    flex-direction: column;
+  }
+  
+  .btn {
+    width: 100%;
+  }
+}
+`;
+  }
+
+  generateJS() {
+    return `// Main JavaScript file
+console.log('🚀 Application loaded successfully!');
+
+// Example: Fetch API status
+async function checkAPIStatus() {
   try {
-    const authHeader = req.header('Authorization');
-    if (authHeader) {
-      const token = authHeader.replace('Bearer ', '');
-      req.user = verifyToken(token);
-    }
-    next();
+    const response = await fetch('/api/status');
+    const data = await response.json();
+    console.log('API Status:', data);
   } catch (error) {
-    next();
+    console.error('API Error:', error);
   }
-};
+}
 
-// Role-based authorization
-const authorize = (...roles) => {
-  return (req, res, next) => {
-    if (!req.user) {
-      return res.status(401).json({ error: 'Not authenticated' });
+// Add smooth scrolling
+document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+  anchor.addEventListener('click', function (e) {
+    e.preventDefault();
+    const target = document.querySelector(this.getAttribute('href'));
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth' });
     }
-
-    if (!roles.includes(req.user.role)) {
-      return res.status(403).json({ error: 'Insufficient permissions' });
-    }
-
-    next();
-  };
-};
-
-module.exports = {
-  generateToken,
-  verifyToken,
-  authenticate,
-  optionalAuth,
-  authorize
-};
-`,
-
-  // Rate limiting middleware
-  rateLimiter: () => `const rateLimit = require('express-rate-limit');
-
-// General API rate limiter
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
-  message: 'Too many requests from this IP, please try again later',
-  standardHeaders: true,
-  legacyHeaders: false,
+  });
 });
 
-// Strict rate limiter for authentication endpoints
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 5,
-  skipSuccessfulRequests: true,
-  message: 'Too many login attempts, please try again later'
+// Check API on load
+document.addEventListener('DOMContentLoaded', () => {
+  console.log('DOM fully loaded');
+  checkAPIStatus();
 });
+`;
+  }
 
-// Create account limiter
-const createAccountLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 3,
-  message: 'Too many accounts created, please try again later'
-});
+  async installDependencies() {
+    const { projectName } = this.config;
+    const projectDir = path.join(process.cwd(), projectName);
 
-module.exports = {
-  apiLimiter,
-  authLimiter,
-  createAccountLimiter
-};
-`,
-
-  // Enhanced .env template
-  envTemplate: (config) => `# Application Configuration
-NODE_ENV=development
-PORT=${config.port}
-APP_NAME=${config.projectName}
-APP_URL=http://localhost:${config.port}
-
-# Security
-JWT_SECRET=${crypto.randomBytes(32).toString('hex')}
-JWT_EXPIRES_IN=7d
-SESSION_SECRET=${crypto.randomBytes(32).toString('hex')}
-ALLOWED_ORIGINS=http://localhost:3000,http://localhost:${config.port}
-
-${config.useDB === 'MySQL' ? `# MySQL Database
-DB_HOST=localhost
-DB_PORT=3306
-DB_USER=root
-DB_PASSWORD=
-DB_NAME=${config.projectName.toLowerCase()}
-DB_CONNECTION_LIMIT=10` : ''}
-
-${config.useDB === 'PostgreSQL' ? `# PostgreSQL Database
-DB_HOST=localhost
-DB_PORT=5432
-DB_USER=postgres
-DB_PASSWORD=
-DB_NAME=${config.projectName.toLowerCase()}
-DB_CONNECTION_LIMIT=10` : ''}
-
-${config.useDB === 'MongoDB' ? `# MongoDB
-MONGODB_URI=mongodb://localhost:27017
-DB_NAME=${config.projectName.toLowerCase()}` : ''}
-
-${config.features.fileUpload ? `# File Upload
-MAX_FILE_SIZE=10485760
-UPLOAD_PATH=./public/uploads
-ALLOWED_FILE_TYPES=image/jpeg,image/png,image/gif,application/pdf` : ''}
-
-# Logging
-LOG_LEVEL=info
-LOG_FILE=./logs/app.log
-
-# Email (if using email service)
-# SMTP_HOST=smtp.gmail.com
-# SMTP_PORT=587
-# SMTP_USER=your-email@gmail.com
-# SMTP_PASS=your-password
-
-# External APIs
-# API_KEY=your-api-key
-`,
-
-  // Enhanced package.json
-  packageJson: (config) => {
-    const deps = {
-      "express": "^4.18.2",
-      "cors": "^2.8.5",
-      "dotenv": "^16.3.1",
-      "helmet": "^7.1.0",
-      "morgan": "^1.10.0"
-    };
-
-    if (config.useEjs === 'EJS (Dynamic)') deps["ejs"] = "^3.1.9";
-    if (config.useDB === 'MySQL') deps["mysql2"] = "^3.6.5";
-    if (config.useDB === 'PostgreSQL') deps["pg"] = "^8.11.3";
-    if (config.useDB === 'MongoDB') deps["mongodb"] = "^6.3.0";
-    if (config.features.authentication) deps["jsonwebtoken"] = "^9.0.2";
-    if (config.security.includes('Standard') || config.security.includes('Advanced')) {
-      deps["express-rate-limit"] = "^7.1.5";
+    this.logger.info('Installing dependencies...');
+    await this.packageManager.installDependencies(projectDir, 'express cors dotenv helmet morgan');
+    
+    if (this.config.useEjs === 'EJS (Dynamic)') {
+      await this.packageManager.installDependencies(projectDir, 'ejs');
     }
-    if (config.features.fileUpload) deps["multer"] = "^1.4.5-lts.1";
-    if (config.features.swagger) {
-      deps["swagger-ui-express"] = "^5.0.0";
-      deps["swagger-jsdoc"] = "^6.2.8";
+    
+    if (this.config.useDB === 'MySQL') {
+      await this.packageManager.installDependencies(projectDir, 'mysql2');
+    } else if (this.config.useDB === 'PostgreSQL') {
+      await this.packageManager.installDependencies(projectDir, 'pg');
+    } else if (this.config.useDB === 'MongoDB') {
+      await this.packageManager.installDependencies(projectDir, 'mongodb');
     }
-
-    const devDeps = {
-      "nodemon": "^3.0.2"
-    };
-
-    if (config.features.linter) {
-      devDeps["eslint"] = "^8.55.0";
-      devDeps["prettier"] = "^3.1.1";
+    
+    if (this.config.features.authentication) {
+      await this.packageManager.installDependencies(projectDir, 'jsonwebtoken');
     }
-
-    if (config.features.testing) {
-      devDeps["jest"] = "^29.7.0";
-      devDeps["supertest"] = "^6.3.3";
+    
+    this.logger.info('Installing dev dependencies...');
+    await this.packageManager.installDependencies(projectDir, 'nodemon', true);
+    
+    if (this.config.features.linter) {
+      await this.packageManager.installDependencies(projectDir, 'eslint prettier', true);
     }
+  }
 
-    return JSON.stringify({
-      "name": config.projectName.toLowerCase().replace(/\s+/g, '-'),
-      "version": "1.0.0",
-      "description": `A Node.js web application - ${config.projectName}`,
-      "main": "src/app.js",
-      "scripts": {
-        "start": "node src/app.js",
-        "dev": "nodemon src/app.js",
-        "test": config.features.testing ? "jest --coverage" : "echo \"No tests specified\"",
-        "lint": config.features.linter ? "eslint src/**/*.js" : "echo \"No linter configured\"",
-        "format": config.features.linter ? "prettier --write \"src/**/*.js\"" : "echo \"No formatter configured\""
-      },
-      "keywords": ["nodejs", "express", "web", config.useEjs, config.useDB],
-      "author": "",
-      "license": "MIT",
-      "dependencies": deps,
-      "devDependencies": devDeps,
-      "engines": {
-        "node": ">=14.0.0",
-        "npm": ">=6.0.0"
+  async postGeneration() {
+    this.logger.info('Running post-generation tasks...');
+    
+    if (this.config.initGit) {
+      try {
+        const projectDir = path.join(process.cwd(), this.config.projectName);
+        execSync('git init', { cwd: projectDir, stdio: 'pipe' });
+        this.logger.success('Initialized git repository');
+      } catch (error) {
+        this.logger.warn('Could not initialize git repository', error);
       }
-    }, null, 2);
+    }
   }
-};
+}
 
 // ============================================================================
-// ERROR HANDLER
+// MAIN APPLICATION
+// ============================================================================
+
+class Application {
+  constructor() {
+    this.logger = new Logger(CONFIG.LOG_FILE);
+    this.cli = new InteractiveCLI(this.logger);
+    this.fsManager = new FileSystemManager(this.logger);
+    this.packageManager = new PackageManager(this.logger);
+    this.systemChecker = new SystemChecker(this.logger);
+    this.generator = new ProjectGenerator(this.logger, this.fsManager, this.packageManager);
+  }
+
+  async run() {
+    try {
+      console.clear();
+      this.cli.showBanner();
+      
+      const systemOk = await this.systemChecker.checkAll();
+      if (!systemOk) {
+        throw new Error('System requirements not met');
+      }
+
+      console.log('');
+      const config = await this.getProjectConfiguration();
+
+      const confirmed = await this.confirmConfiguration(config);
+      if (!confirmed) {
+        this.logger.info('Project generation cancelled by user');
+        process.exit(0);
+      }
+
+      await this.generator.generate(config);
+
+      this.showSuccessMessage(config);
+
+    } catch (error) {
+      this.logger.error('Application error', error);
+      process.exit(1);
+    } finally {
+      this.cleanup();
+    }
+  }
+
+  async getProjectConfiguration() {
+    const config = {};
+
+    while (true) {
+      const name = await this.cli.question(`${COLORS.cyan}📝 Project name: ${COLORS.reset}`);
+      const validation = Validator.validateProjectName(name);
+      
+      if (validation.valid) {
+        const projectPath = path.join(process.cwd(), name);
+        if (fs.existsSync(projectPath)) {
+          this.logger.error(`Directory "${name}" already exists`);
+          const overwrite = await this.cli.question(`${COLORS.yellow}Overwrite? (yes/no): ${COLORS.reset}`);
+          if (overwrite.toLowerCase() === 'yes') {
+            try {
+              fs.rmSync(projectPath, { recursive: true, force: true });
+              this.logger.success('Existing directory removed');
+            } catch (error) {
+              this.logger.error('Failed to remove existing directory', error);
+              continue;
+            }
+          } else {
+            continue;
+          }
+        }
+        config.projectName = name;
+        break;
+      } else {
+        validation.errors.forEach(err => this.logger.error(err));
+      }
+    }
+
+    const ejsAnswer = await this.cli.question(`${COLORS.cyan}🎨 Use EJS template engine? (Y/n): ${COLORS.reset}`);
+    config.useEjs = ejsAnswer.toLowerCase() !== 'n' ? 'EJS (Dynamic)' : 'Plain HTML (Static)';
+
+    const dbAnswer = await this.cli.question(`${COLORS.cyan}🗄️  Use database? (mysql/postgresql/mongodb/none): ${COLORS.reset}`);
+    const dbMap = {
+      'mysql': 'MySQL',
+      'postgresql': 'PostgreSQL',
+      'postgres': 'PostgreSQL',
+      'mongo': 'MongoDB',
+      'mongodb': 'MongoDB',
+      'none': 'None',
+      '': 'None'
+    };
+    config.useDB = dbMap[dbAnswer.toLowerCase()] || 'None';
+
+    config.features = {};
+    
+    const authAnswer = await this.cli.question(`${COLORS.cyan}🔐 Add authentication (JWT)? (Y/n): ${COLORS.reset}`);
+    config.features.authentication = authAnswer.toLowerCase() !== 'n';
+
+    const linterAnswer = await this.cli.question(`${COLORS.cyan}📋 Add ESLint + Prettier? (Y/n): ${COLORS.reset}`);
+    config.features.linter = linterAnswer.toLowerCase() !== 'n';
+
+    while (true) {
+      const port = await this.cli.question(`${COLORS.cyan}🔌 Server port (default: 3000): ${COLORS.reset}`) || '3000';
+      if (Validator.validatePort(port)) {
+        config.port = port;
+        break;
+      } else {
+        this.logger.error('Invalid port number');
+      }
+    }
+
+    const gitAnswer = await this.cli.question(`${COLORS.cyan}📦 Initialize git repository? (Y/n): ${COLORS.reset}`);
+    config.initGit = gitAnswer.toLowerCase() !== 'n';
+
+    return config;
+  }
+
+  async confirmConfiguration(config) {
+    console.log(`\n${COLORS.bright}${COLORS.bgBlue} PROJECT CONFIGURATION ${COLORS.reset}\n`);
+    console.log(`${COLORS.cyan}  Project Name:${COLORS.reset}     ${config.projectName}`);
+    console.log(`${COLORS.cyan}  Template:${COLORS.reset}         ${config.useEjs}`);
+    console.log(`${COLORS.cyan}  Database:${COLORS.reset}         ${config.useDB}`);
+    console.log(`${COLORS.cyan}  Port:${COLORS.reset}             ${config.port}`);
+    console.log(`${COLORS.cyan}  Authentication:${COLORS.reset}   ${config.features.authentication ? 'Yes' : 'No'}`);
+    console.log(`${COLORS.cyan}  Linter:${COLORS.reset}           ${config.features.linter ? 'Yes' : 'No'}`);
+    console.log(`${COLORS.cyan}  Git Init:${COLORS.reset}         ${config.initGit ? 'Yes' : 'No'}`);
+    
+    const confirm = await this.cli.question(`\n${COLORS.yellow}Proceed with generation? (Y/n): ${COLORS.reset}`);
+    return confirm.toLowerCase() !== 'n';
+  }
+
+  showSuccessMessage(config) {
+    console.log(`\n${COLORS.green}${COLORS.bright}╔${'═'.repeat(60)}╗${COLORS.reset}`);
+    console.log(`${COLORS.green}${COLORS.bright}║${' '.repeat(23)}🎉 SUCCESS! 🎉${' '.repeat(23)}║${COLORS.reset}`);
+    console.log(`${COLORS.green}${COLORS.bright}╚${'═'.repeat(60)}╝${COLORS.reset}\n`);
+
+    const projectPath = path.join(process.cwd(), config.projectName);
+    console.log(`${COLORS.cyan}📁 Project created at:${COLORS.reset} ${COLORS.bright}${projectPath}${COLORS.reset}\n`);
+
+    const structure = this.fsManager.getCreatedStructure();
+    console.log(`${COLORS.dim}  Created: ${structure.totalFiles} files, ${structure.totalDirectories} directories${COLORS.reset}\n`);
+
+    console.log(`${COLORS.yellow}${COLORS.bright}📋 Next Steps:${COLORS.reset}\n`);
+    console.log(`  ${COLORS.cyan}1.${COLORS.reset} cd ${config.projectName}`);
+    console.log(`  ${COLORS.cyan}2.${COLORS.reset} npm run dev ${COLORS.dim}(start development server)${COLORS.reset}`);
+    
+    if (config.useDB !== 'None') {
+      console.log(`  ${COLORS.cyan}3.${COLORS.reset} Configure database in .env file`);
+      console.log(`  ${COLORS.cyan}4.${COLORS.reset} Create database: ${COLORS.dim}CREATE DATABASE ${config.projectName.toLowerCase().replace(/\s+/g, '_')};${COLORS.reset}`);
+    }
+
+    console.log(`\n${COLORS.green}${COLORS.bright}🚀 Your application will run on:${COLORS.reset}`);
+    console.log(`   ${COLORS.underscore}http://localhost:${config.port}${COLORS.reset}\n`);
+
+    console.log(`${COLORS.bright}Happy coding! 💻✨${COLORS.reset}\n`);
+  }
+
+  cleanup() {
+    this.cli.cleanup();
+    this.logger.close();
+  }
+}
+
+// ============================================================================
+// ERROR HANDLERS
 // ============================================================================
 
 process.on('uncaughtException', (error) => {
@@ -1641,4 +1569,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { Application, Templates, Validator, Logger };
+module.exports = { Application, Validator, Logger };
