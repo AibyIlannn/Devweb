@@ -1,6 +1,6 @@
 {
   "name": "dev-create-web",
-  "version": "1.3.7",
+  "version": "1.4.0",
   "description": "🚀 CLI tool to generate Node.js project structure with Express, EJS, and MySQL support",
   "main": "index.js",
   "bin": {
