@@ -1359,9 +1359,6 @@ document.addEventListener('DOMContentLoaded', () => {
       await this.packageManager.installDependencies(projectDir, 'jsonwebtoken');
     }
     
-    this.logger.info('Installing dev dependencies...');
-    await this.packageManager.installDependencies(projectDir, 'nodemon', true, '--no-bin-links');
-    
     if (this.config.features.linter) {
       await this.packageManager.installDependencies(projectDir, 'eslint prettier', true);
     }
