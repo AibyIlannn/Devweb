@@ -665,9 +665,7 @@ process.on('SIGTERM', () => {
     if (useDB === 'MongoDB') deps["mongodb"] = "^6.3.0";
     if (features.authentication) deps["jsonwebtoken"] = "^9.0.2";
 
-    const devDeps = {
-      io: null
-    }
+    const devDeps = {}
 
     if (features.linter) {
       devDeps["eslint"] = "^8.55.0";
