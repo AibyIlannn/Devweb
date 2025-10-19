@@ -401,6 +401,7 @@ ${COLORS.cyan}${COLORS.bright}
     ░ ▒  ▒  ░ ░  ░  ░ ░░  
     ░ ░  ░    ░       ░░  
       ░       ░  ░     ░  
+      
      🚀 DEV WEB v${CONFIG.VERSION}
 ${COLORS.reset}
 `;
@@ -1339,7 +1340,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const projectDir = path.join(process.cwd(), projectName);
 
     this.logger.info('Installing dependencies...');
-    await this.packageManager.installDependencies(projectDir, ['express', 'cors', 'dotenv', 'helmet', 'morgan'], { flags: '--no-bin-links' });
+    await this.packageManager.installDependencies(projectDir, ['express', 'cors', 'dotenv', '@dotenvx/dotenvx', 'helmet', 'morgan'], { flags: '--no-bin-links' });
     
     if (this.config.useEjs === 'EJS (Dynamic)') {
       await this.packageManager.installDependencies(projectDir, 'ejs');
