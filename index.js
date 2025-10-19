@@ -401,7 +401,7 @@ ${COLORS.cyan}${COLORS.bright}
     ░ ▒  ▒  ░ ░  ░  ░ ░░  
     ░ ░  ░    ░       ░░  
       ░       ░  ░     ░  
-          🚀 DEV WEB v${CONFIG.VERSION}
+ 🚀 DEV WEB v${CONFIG.VERSION}
 ${COLORS.reset}
 `;
     console.log(banner);
@@ -1507,9 +1507,16 @@ class Application {
   }
 
   showSuccessMessage(config) {
-    console.log(`\n${COLORS.green}${COLORS.bright}╔${'═'.repeat(60)}╗${COLORS.reset}`);
-    console.log(`${COLORS.green}${COLORS.bright}║${' '.repeat(23)}🎉 SUCCESS! 🎉${' '.repeat(23)}║${COLORS.reset}`);
-    console.log(`${COLORS.green}${COLORS.bright}╚${'═'.repeat(60)}╝${COLORS.reset}\n`);
+console.log(`
+  ____   ______        __      __
+ |  _ \\ |  _ \\ \\      / /\\    / / 
+ | | | || | | \\ \\ /\\ / /  \\  / /  
+ | | | || | | |\\ V  V / /\\ \\/ /   
+ | |_| || |_| | \\_/\\_/ /  \\  /    
+ |____/ |____/        /_/  \\/     
+
+        SUCCESS
+`);
 
     const projectPath = path.join(process.cwd(), config.projectName);
     console.log(`${COLORS.cyan}📁 Project created at:${COLORS.reset} ${COLORS.bright}${projectPath}${COLORS.reset}\n`);
