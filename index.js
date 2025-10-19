@@ -666,8 +666,8 @@ process.on('SIGTERM', () => {
     if (features.authentication) deps["jsonwebtoken"] = "^9.0.2";
 
     const devDeps = {
-      "nodemon": "^3.0.2"
-    };
+      io: null
+    }
 
     if (features.linter) {
       devDeps["eslint"] = "^8.55.0";
